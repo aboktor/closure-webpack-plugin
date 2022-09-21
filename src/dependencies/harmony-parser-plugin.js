@@ -36,9 +36,9 @@ class HarmonyParserPlugin {
       if (!existingDep) {
         const dep = new HarmonyExportImportDependency(
           source,
-          parser.state.module,
+          // parser.state.module,
           parser.state.lastHarmonyImportOrder,
-          parser.state.harmonyParserScope,
+          // parser.state.harmonyParserScope,
           statement.source.range
         );
         parser.state.current.addDependency(dep);
@@ -51,12 +51,13 @@ class HarmonyParserPlugin {
       );
       const dep = new HarmonyImportDependency(
         source,
-        parser.state.module,
+        // parser.state.module,
         parser.state.lastHarmonyImportOrder,
-        parser.state.harmonyParserScope,
-        null,
-        null,
-        statement.source.range
+        // parser.state.harmonyParserScope,
+        [] /* ids */,
+        null /* name */,
+        statement.source.range,
+        0 /* export presence mode */
       );
       parser.state.current.addDependency(dep);
       return true;

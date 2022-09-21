@@ -1,6 +1,6 @@
 let uniqueId = 1;
 
-function getWebpackModuleName(webpackModule) {
+function getWebpackModuleName(webpackModule, chunkGraph) {
   if (webpackModule.userRequest) {
     return webpackModule.userRequest;
   }
@@ -9,12 +9,13 @@ function getWebpackModuleName(webpackModule) {
     return webpackModule.rootModule.userRequest;
   }
 
-  if (webpackModule.id) {
-    return `__missing_path_${webpackModule.id}__`;
+  const id = chunkGraph.getModuleId(webpackModule);
+  if (id) {
+    return `__missing_path_${id}__`;
   }
 
   if (webpackModule.module) {
-    return getWebpackModuleName(webpackModule.module);
+    return getWebpackModuleName(webpackModule.module); // Do we really want this recursive call?
   }
 
   if (webpackModule.__wpccName) {

@@ -1,30 +1,20 @@
-import { PolymerElement, html } from '@polymer/polymer/polymer-element';
+import { doStuff } from './second-file';
+import { MyClass} from './class-file';
+import { Result } from './function-class';
 
-class HelloWorldElement extends PolymerElement {
-  static get is() {
-    return 'hello-world';
-  }
+doStuff(); // Hello World
+const res = new Result(1,2,3);
+const thingToLog = res.ok;
+console.log(thingToLog); // console.log(1)
+new MyClass('NAME NAME').doStuff(); // console.log(private stuff NAME NAME)
+const delay = (ms) => {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+};
 
-  static get template() {
-    return html`
-      <style>
-        :host {
-          display: block;
-          background-color: #c0c0c0;
-        }
-      </style>
-      <div>[[greeting]]</div>
-    `;
-  }
-
-  static get properties() {
-    return {
-      greeting: {
-        type: String,
-        value: 'hello world'
-      }
-    }
-  }
-}
-
-customElements.define(HelloWorldElement.is, HelloWorldElement);
+delay(5000).then(() =>
+  import('./dynamic-file').then((dynamicModule) =>
+    dynamicModule.doDynamicStuff() // append Dynamic Stuff
+  )
+);

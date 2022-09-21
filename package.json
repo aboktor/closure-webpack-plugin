@@ -15,7 +15,6 @@
   },
   "scripts": {
     "commitlint": "commitlint",
-    "commitmsg": "commitlint -e $GIT_PARAMS",
     "lint": "eslint --cache src test",
     "ci:lint:commits": "commitlint --from=${CIRCLE_BRANCH} --to=${CIRCLE_SHA1}",
     "lint-staged": "lint-staged",
@@ -34,7 +33,7 @@
     "acorn-walk": "^8.2.0",
     "schema-utils": "1.x",
     "unquoted-property-validator": "^1.0.2",
-    "webpack-sources": "1.x"
+    "webpack-sources": "^3.2.2"
   },
   "devDependencies": {
     "@commitlint/cli": "^8.2.0",
@@ -48,7 +47,7 @@
     "eslint": "^6.8.0",
     "eslint-plugin-import": "^2.19.1",
     "eslint-plugin-prettier": "^3.1.2",
-    "google-closure-compiler": "^20200830.0.0",
+    "google-closure-compiler": "^20220905.0.0",
     "husky": "^3.1.0",
     "jest": "^24.9.0",
     "lint-staged": "^9.5.0",
@@ -56,14 +55,15 @@
     "pre-commit": "^1.2.2",
     "prettier": "^1.19.1",
     "standard-version": "^8.0.1",
-    "webpack": "4.x"
+    "webpack": "5.8.x",
+    "@types/webpack": "^5.28.0"
   },
   "engines": {
     "node": ">= 6.9.0 || >= 8.9.0"
   },
   "peerDependencies": {
-    "google-closure-compiler": ">=20200830.0.0",
-    "webpack": "4.x"
+    "google-closure-compiler": ">=20220905.0.0",
+    "webpack": "5.8.x"
   },
   "homepage": "https://github.com/webpack-contrib/closure-webpack-plugin",
   "repository": "https://github.com/webpack-contrib/closure-webpack-plugin",

@@ -1,9 +1,10 @@
 const toSafePath = require('./safe-path');
 const getWebpackModuleName = require('./module-name');
+const { compareModulesByIdentifier } = require('webpack/lib/util/comparators');
 
 let uniqueId = 1;
 module.exports = function getChunkSources(chunk, compilation) {
-  if (chunk.isEmpty()) {
+  if (compilation.chunkGraph.getNumberOfChunkModules(chunk) === 0) {
     const emptyId = uniqueId;
     uniqueId += 1;
     return [
@@ -15,32 +16,44 @@ module.exports = function getChunkSources(chunk, compilation) {
   }
 
   const getModuleSrcObject = (webpackModule) => {
-    const modulePath = getWebpackModuleName(webpackModule);
+
+    const first = (set) => {
+      const entry = set.values().next();
+      return entry.done ? undefined : entry.value;
+    };
+    const modulePath = getWebpackModuleName(
+      webpackModule,
+      compilation.chunkGraph
+    );
     let src = '';
     let sourceMap = null;
     if (/javascript/.test(webpackModule.type)) {
       try {
-        const souceAndMap = webpackModule
-          .source(compilation.dependencyTemplates, compilation.runtimeTemplate)
-          .sourceAndMap();
-        src = souceAndMap.source;
-        if (souceAndMap.map) {
-          sourceMap = souceAndMap.map;
+        const source = compilation.codeGenerationResults.getSource(
+          webpackModule,
+          chunk.runtime,
+          first(webpackModule.getSourceTypes())
+        );
+        const sourceAndMap = source.sourceAndMap();
+        src = sourceAndMap.source;
+        if (sourceAndMap.map) {
+          sourceMap = sourceAndMap.map;
         }
       } catch (e) {
         compilation.errors.push(e);
       }
     }
+    const moduleId = compilation.chunkGraph.getModuleId(webpackModule);
 
     return {
       path: toSafePath(modulePath),
       src,
       sourceMap,
       webpackId:
-        webpackModule.id !== null &&
-        webpackModule.id !== undefined && // eslint-disable-line no-undefined
-        webpackModule.id.toString().length > 0
-          ? `${webpackModule.id}`
+        moduleId !== null &&
+        moduleId !== undefined && // eslint-disable-line no-undefined
+        moduleId.toString().length > 0
+          ? `${moduleId}`
           : null,
     };
   };
@@ -60,8 +73,10 @@ module.exports = function getChunkSources(chunk, compilation) {
     return chunkModules;
   };
 
-  return chunk
-    .getModules()
+  // Absolute hack here ordering by reverse chunk ids
+  return compilation.chunkGraph
+    .getOrderedChunkModules(chunk, compareModulesByIdentifier)
+    .reverse()
     .reduce(getChunkModuleSources, [])
     .filter(
       (moduleJson) =>

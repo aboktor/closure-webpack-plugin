@@ -49,8 +49,9 @@ var ChunkMap;
  * @return {string|undefined}
  */
 function findChunkFile(chunk, chunkId, outputFilePath) {
-  for (let i = 0; i < chunk.files.length; i++) {
-    const chunkFile = chunk.files[i];
+  const files = Array.from(chunk.files);
+  for (let i = 0; i < files.length; i++) {
+    const chunkFile = files[i];
     let normalizedOutputFilePath = outputFilePath.replace(/^\.\//, '');
     if (!/\.js$/.test(chunkFile)) {
       normalizedOutputFilePath = normalizedOutputFilePath.slice(0, -3);
@@ -187,15 +188,7 @@ class ClosureCompilerPlugin {
         );
       }
 
-      const dependencyFactoriesByName = new Map();
-      compilation.dependencyFactories.forEach((val, key) => {
-        dependencyFactoriesByName.set(key.name, val);
-      });
-      const dependencyTemplatesByName = new Map();
-      compilation.dependencyTemplates.forEach((val, key) => {
-        dependencyTemplatesByName.set(key.name, val);
-      });
-      [
+      const badDepenencies = [
         'AMDDefineDependency',
         'HarmonyImportSideEffectDependency',
         'HarmonyImportSpecifierDependency',
@@ -203,26 +196,37 @@ class ClosureCompilerPlugin {
         'HarmonyExportExpressionDependency',
         'HarmonyExportImportedSpecifierDependency',
         'HarmonyExportSpecifierDependency',
-      ].forEach((factoryName) =>
+      ];
+
+      // Create map
+      const dependencyFactoriesByName = new Map();
+      // Read all factories and store them in map name -> value
+      compilation.dependencyFactories.forEach((val, key) => {
+        dependencyFactoriesByName.set(key.name, val);
+      });
+
+      // Delete them all from compilation.dependencyFactories
+      badDepenencies.forEach((factoryName) =>
         compilation.dependencyFactories.delete(
           dependencyFactoriesByName.get(factoryName)
         )
       );
 
-      [
-        'AMDDefineDependencyTemplate',
-        'HarmonyImportSideEffectDependencyTemplate',
-        'HarmonyImportSpecifierDependencyTemplate',
-        'HarmonyExportHeaderDependencyTemplate',
-        'HarmonyExportExpressionDependencyTemplate',
-        'HarmonyExportImportedSpecifierDependencyTemplate',
-        'HarmonyExportSpecifierDependencyTemplate',
-      ].forEach((templateName) =>
-        compilation.dependencyTemplates.delete(
+      // Create map
+      const dependencyTemplatesByName = new Map();
+      // Read all dependency templates
+      compilation.dependencyTemplates._map.forEach((val, key) => {
+        dependencyTemplatesByName.set(key.name, val);
+      });
+
+      // Delete them all from compilation.dependencyTemplates
+      badDepenencies.forEach((templateName) =>
+        compilation.dependencyTemplates._map.delete(
           dependencyTemplatesByName.get(templateName)
         )
       );
 
+      // Now set our own
       compilation.dependencyFactories.set(
         HarmonyExportDependency,
         normalModuleFactory
@@ -256,10 +260,12 @@ class ClosureCompilerPlugin {
         new HarmonyMarkerDependency.Template()
       );
 
+      // Wait until something is done, then set all the templates to HarmonyNoopTemplate
       // It's very difficult to override a specific dependency template without rewriting the entire set.
       // Microtask timing is used to ensure that these overrides occur after the main template plugins run.
       Promise.resolve().then(() => {
-        compilation.dependencyTemplates.forEach((val, key) => {
+        // return;
+        compilation.dependencyTemplates._map.forEach((val, key) => {
           switch (key.name) {
             case 'AMDDefineDependency':
               compilation.dependencyTemplates.set(
@@ -286,25 +292,19 @@ class ClosureCompilerPlugin {
         });
       });
 
-      compilation.hooks.afterOptimizeChunks.tap(
-        PLUGIN,
-        (chunks, chunkGroups) => {
-          if (!this.optimizedCompilations.has(compilation)) {
-            this.optimizedCompilations.add(compilation);
-            this.optimizeChunks(compilation, chunks, chunkGroups);
-          }
+      compilation.hooks.afterOptimizeChunks.tap(PLUGIN, (chunks) => {
+        if (!this.optimizedCompilations.has(compilation)) {
+          this.optimizedCompilations.add(compilation);
+          this.optimizeChunks(compilation, chunks);
         }
-      );
+      });
     }
 
-    compilation.mainTemplate.hooks.hash.tap(
-      'SetVarMainTemplatePlugin',
-      (hash) => {
-        hash.update('set var');
-        hash.update(`${this.varExpression}`);
-        hash.update(`${this.copyObject}`);
-      }
-    );
+    compilation.hooks.fullHash.tap('SetVarMainTemplatePlugin', (hash) => {
+      hash.update('set var');
+      hash.update(`${this.varExpression}`);
+      hash.update(`${this.copyObject}`);
+    });
 
     compilation.hooks.buildModule.tap(PLUGIN, (moduleArg) => {
       // to get detailed location info about errors
@@ -315,10 +315,13 @@ class ClosureCompilerPlugin {
       this.removeMarkers(webpackModules)
     );
 
-    compilation.hooks.optimizeChunkAssets.tapAsync(
-      PLUGIN,
+    compilation.hooks.processAssets.tapAsync(
+      {
+        name: PLUGIN.name,
+        stage: compilation.PROCESS_ASSETS_STAGE_OPTIMIZE,
+      },
       (originalChunks, cb) =>
-        this.optimizeChunkAssets(compilation, originalChunks, cb)
+        this.optimizeChunkAssets(compilation, compilation.chunks, cb)
     );
   }
 
@@ -365,7 +368,7 @@ class ClosureCompilerPlugin {
    * @param {!Set<!Chunk>} chunks
    * @param {!Set<!ChunkGroup>} chunkGroups
    */
-  optimizeChunks(compilation, chunks, chunkGroups) {
+  optimizeChunks(compilation, chunks) {
     const requiredBase = new ChunkGroup(this.BASE_CHUNK_NAME);
 
     /** @type {!Map<!Module, !Set<!ChunkGroup>>} */
@@ -373,7 +376,7 @@ class ClosureCompilerPlugin {
 
     // Create a map of every module to all chunk groups which
     // reference it.
-    chunkGroups.forEach((chunkGroup) => {
+    compilation.chunkGroups.forEach((chunkGroup) => {
       // Add the new synthetic base chunk group as a parent
       // for any entrypoints.
       if (chunkGroup.getParents().length === 0) {
@@ -381,12 +384,14 @@ class ClosureCompilerPlugin {
         requiredBase.addChild(chunkGroup);
       }
       chunkGroup.chunks.forEach((chunk) => {
-        chunk.getModules().forEach((webpackModule) => {
-          if (!moduleChunks.has(webpackModule)) {
-            moduleChunks.set(webpackModule, new Set());
-          }
-          moduleChunks.get(webpackModule).add(chunkGroup);
-        });
+        compilation.chunkGraph
+          .getChunkModulesIterable(chunk)
+          .forEach((webpackModule) => {
+            if (!moduleChunks.has(webpackModule)) {
+              moduleChunks.set(webpackModule, new Set());
+            }
+            moduleChunks.get(webpackModule).add(chunkGroup);
+          });
       });
     });
 
@@ -395,12 +400,12 @@ class ClosureCompilerPlugin {
     baseChunk.addGroup(requiredBase);
     requiredBase.pushChunk(baseChunk);
     compilation.chunkGroups.push(requiredBase);
-    compilation.chunks.push(baseChunk);
+    compilation.chunks.add(baseChunk);
 
     // Find any module with more than 1 chunkGroup and move the module up the graph
     // to the nearest common ancestor
     moduleChunks.forEach((moduleChunkGroups, duplicatedModule) => {
-      if (chunkGroups.size < 2) {
+      if (compilation.chunkGroups.size < 2) {
         return;
       }
       const commonParent = findNearestCommonParentChunk(
@@ -415,9 +420,11 @@ class ClosureCompilerPlugin {
         }
         moduleChunkGroups.forEach((moduleChunkGroup) => {
           const targetChunks = moduleChunkGroup.chunks.filter((chunk) =>
-            chunk.getModules().includes(duplicatedModule)
+            compilation.chunkGraph
+              .getChunkModulesIterable(chunk)
+              .includes(duplicatedModule)
           );
-          if (targetChunks.length > 0) {
+          if (targetChunks.size() > 0) {
             targetChunks.forEach((chunk) =>
               chunk.removeModule(duplicatedModule)
             );
@@ -455,7 +462,7 @@ class ClosureCompilerPlugin {
     // each chunk and find any entry points.
     // Add the entry point and any descendant chunks to the compilation.
     originalChunks.forEach((chunk) => {
-      if (!chunk.hasEntryModule()) {
+      if (compilation.chunkGraph.getNumberOfEntryModules(chunk) === 0) {
         return;
       }
       const chunkDefs = new Map();
@@ -493,7 +500,9 @@ class ClosureCompilerPlugin {
               if (chunkIdParts) {
                 chunkId = parseInt(chunkIdParts[1], 10);
               }
-              const matchingChunk = compilation.chunks.find((chunk_) =>
+              const matchingChunk = Array.from(
+                compilation.chunks
+              ).find((chunk_) =>
                 findChunkFile(chunk_, chunkId, outputFile.path)
               );
               if (!matchingChunk) {
@@ -532,8 +541,8 @@ class ClosureCompilerPlugin {
 
     originalChunks.forEach((chunk) => {
       const chunkFilename = this.getChunkName(compilation, chunk);
-      if (!chunk.files.includes(chunkFilename)) {
-        chunk.files.push(chunkFilename);
+      if (!chunk.files.has(chunkFilename)) {
+        chunk.files.add(chunkFilename);
         if (!compilation.assets[chunkFilename]) {
           compilation.assets[chunkFilename] = new RawSource('');
         }
@@ -553,6 +562,21 @@ class ClosureCompilerPlugin {
       });
   }
 
+  getEntryModule(chunk, compilation) {
+    const entryModules = Array.from(
+      compilation.chunkGraph.getChunkEntryModulesIterable(chunk)
+    );
+    if (entryModules.length === 0) {
+      // eslint-disable-next-line no-undefined
+      return undefined;
+    } else if (entryModules.length === 1) {
+      return entryModules[0];
+    }
+    throw new Error(
+      `Chunk has ${entryModules.length} entryModules. Multiple entry modules are not supported by the deprecated API (Use the new ChunkGroup API)`
+    );
+  }
+
   /**
    * Rewrite commonjs modules into a global namespace. Output is split into chunks
    * based on the dependency graph provided by webpack. Symbols referenced from
@@ -568,15 +592,15 @@ class ClosureCompilerPlugin {
     /** @type {!ChunkMap} */
     const chunkDefs = new Map();
     const entrypoints = [];
-    const baseChunk = originalChunks.find(
+    const baseChunk = Array.from(originalChunks).find(
       (chunk) => chunk.name === this.BASE_CHUNK_NAME
-    );
-    let { chunkGroups } = compilation;
+    ); // finds base chunk
+    let { chunkGroups } = compilation; // two chunk groups
     if (baseChunk) {
       baseChunk.files.forEach((chunkFile) => {
         delete compilation.assets[chunkFile];
       });
-      baseChunk.files.splice(0, baseChunk.files.length);
+      baseChunk.files.clear(); // Delete everything
       const baseChunkGroup = compilation.chunkGroups.find(
         (chunkGroup) => chunkGroup.name === this.BASE_CHUNK_NAME
       );
@@ -624,14 +648,18 @@ class ClosureCompilerPlugin {
       const primaryParentNames = [];
 
       // Entrypoints are chunk groups with no parents
-      if (primaryChunk && primaryChunk.entryModule) {
+      if (
+        primaryChunk &&
+        compilation.chunkGraph.getNumberOfEntryModules(primaryChunk) > 0
+      ) {
         if (!baseChunk || chunkGroup.getParents().length === 0) {
           primaryParentNames.push(this.BASE_CHUNK_NAME);
         }
+        const entryModule = this.getEntryModule(primaryChunk, compilation);
         const entryModuleDeps =
-          primaryChunk.entryModule.type === 'multi entry'
-            ? primaryChunk.entryModule.dependencies
-            : [primaryChunk.entryModule];
+          entryModule.type === 'multi entry'
+            ? entryModule.dependencies
+            : [entryModule];
         entryModuleDeps.forEach((entryDep) => {
           entrypoints.push(toSafePath(getWebpackModuleName(entryDep)));
         });
@@ -747,10 +775,15 @@ class ClosureCompilerPlugin {
       `_WEBPACK_TIMEOUT_=${compilation.outputOptions.chunkLoadTimeout}`
     );
 
-    const PUBLIC_PATH = compilation.mainTemplate.getPublicPath({
-      hash: compilation.hash,
-    });
-    defines.push(`_WEBPACK_PUBLIC_PATH_='${PUBLIC_PATH}'`);
+    const PUBLIC_PATH = compilation.getAssetPath(
+      compilation.outputOptions.publicPath,
+      {
+        hash: compilation.hash,
+      }
+    );
+    if (PUBLIC_PATH !== 'auto') {
+      defines.push(`_WEBPACK_PUBLIC_PATH_='${PUBLIC_PATH}'`);
+    }
 
     const allSources = [];
     const compilationOptions = this.buildCompilerOptions(
@@ -780,7 +813,7 @@ class ClosureCompilerPlugin {
           baseChunk.files.forEach((filename) => {
             delete compilation.assets[filename];
           });
-          baseChunk.files.splice(0, baseChunk.files.length);
+          baseChunk.files.clear(); // Delete everything
         }
 
         outputFiles
@@ -791,10 +824,14 @@ class ClosureCompilerPlugin {
             if (chunkIdParts) {
               chunkId = parseInt(chunkIdParts[1], 10);
             }
-            const chunk = compilation.chunks.find((chunk_) =>
+            const chunk = Array.from(compilation.chunks).find((chunk_) =>
               findChunkFile(chunk_, chunkId, outputFile.path)
             );
-            if (!chunk || (chunk.isEmpty() && chunk.files.length === 0)) {
+            if (
+              !chunk ||
+              (compilation.chunkGraph.getNumberOfChunkModules(chunk) === 0 &&
+                chunk.files.size() === 0)
+            ) {
               return;
             }
             const assetName = findChunkFile(chunk, chunkId, outputFile.path);
@@ -883,7 +920,9 @@ class ClosureCompilerPlugin {
       // Sanity check - make sure we added at least one chunk to the output
       // in this loop iteration. Prevents infinite loops.
       if (startLength === chunkDefArray.length) {
-        throw new Error('Unable to build chunk map - parent chunks not found');
+        throw new Error(
+          `Unable to build chunk map - parent chunks not found, startLength ${startLength}, chunkDefArray.length ${chunkDefArray.length}`
+        );
       }
     }
 
@@ -916,6 +955,8 @@ class ClosureCompilerPlugin {
    *   }>>}
    */
   runCompiler(compilation, flags, sources) {
+    // console.log('Running compiler with flags', flags, 'sources', sources);
+    console.log('Running compiler with flags', flags);
     return new Promise((resolve, reject) => {
       flags = Object.assign({}, flags, {
         error_format: 'JSON',
@@ -1053,10 +1094,10 @@ class ClosureCompilerPlugin {
   getChunkName(compilation, chunk) {
     const filenameTemplate = this.getChunkFilenameTemplate(
       compilation,
-      chunk.hasEntryModule()
+      compilation.chunkGraph.getNumberOfEntryModules(chunk) > 0
     );
     const useChunkHash =
-      !chunk.hasEntryModule() ||
+      compilation.chunkGraph.getNumberOfEntryModules(chunk) === 0 ||
       (compilation.mainTemplate.useChunkHash &&
         compilation.mainTemplate.useChunkHash(chunk));
     return compilation.getPath(filenameTemplate, {
@@ -1196,10 +1237,10 @@ class ClosureCompilerPlugin {
       }
       return;
     } else if (
-      !chunk.files.includes(chunkName) &&
+      !chunk.files.has(chunkName) &&
       chunk.name !== this.BASE_CHUNK_NAME
     ) {
-      chunk.files.push(chunkName);
+      chunk.files.add(chunkName);
       if (!compilation.assets[chunkName]) {
         compilation.assets[chunkName] = new RawSource('');
       }
@@ -1235,9 +1276,10 @@ class ClosureCompilerPlugin {
       name: safeChunkName,
       parentNames: new Set(),
       sources: chunkSources,
-      outputWrapper: chunk.hasEntryModule()
-        ? ENTRY_CHUNK_WRAPPER
-        : `webpackJsonp([${chunk.id}], function(__wpcc){%s});`,
+      outputWrapper:
+        compilation.chunkGraph.getNumberOfEntryModules(chunk) > 0
+          ? ENTRY_CHUNK_WRAPPER
+          : `webpackJsonp([${chunk.id}], function(__wpcc){%s});`,
     };
     if (parentChunkNames) {
       parentChunkNames.forEach((parentName) => {

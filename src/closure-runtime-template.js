@@ -3,23 +3,33 @@ const Template = require('webpack/lib/Template');
 const unquotedValidator = require('unquoted-property-validator');
 
 module.exports = class ClosureRuntimeTemplate extends RuntimeTemplate {
-  moduleNamespacePromise({ block, module, request, message }) {
+  moduleNamespacePromise({
+    chunkGraph,
+    block,
+    module,
+    request,
+    message,
+    runtimeRequirements,
+  }) {
     if (!module) {
       return this.missingModulePromise({
         request,
       });
     }
-    if (module.id === null) {
+    const moduleId = chunkGraph.getModuleId(module);
+    if (moduleId === null) {
       throw new Error(
         `RuntimeTemplate.moduleNamespacePromise(): Module ${module.identifier()} has no id. This should not happen.`
       );
     }
     const promise = this.blockPromise({
       block,
+      chunkGraph,
       message,
+      runtimeRequirements,
     });
 
-    const idExpr = JSON.stringify(module.id);
+    const idExpr = JSON.stringify(moduleId);
     const comment = this.comment({
       request,
     });
@@ -37,7 +47,7 @@ module.exports = class ClosureRuntimeTemplate extends RuntimeTemplate {
    * @param {Module} options.originModule module in which the statement is emitted
    * @returns {string} the import statement
    */
-  importStatement({ update, module, request, importVar, originModule }) {
+  importStatement({ update, module, request, importVar, originModule, chunkGraph, weak }) {
     if (!module) {
       return this.missingModuleStatement({
         request,
@@ -45,7 +55,9 @@ module.exports = class ClosureRuntimeTemplate extends RuntimeTemplate {
     }
     const moduleId = this.moduleId({
       module,
+      chunkGraph,
       request,
+      weak
     });
     const optDeclaration = update ? '' : 'var ';
     return `/* harmony import */ ${optDeclaration}${importVar} = __webpack_require__(${moduleId})\n`;
@@ -60,12 +72,21 @@ module.exports = class ClosureRuntimeTemplate extends RuntimeTemplate {
     isCall,
     callContext,
     importVar,
+    runtime,
+    moduleGraph
   }) {
     if (!module) {
       return this.missingModule({
         request,
       });
     }
+    if (exportName.length > 1) {
+      throw new Error(
+        `webpack-closure-plugin doesn't know how to deal with that: ${exportName}`
+      );
+    }
+    const singleExportName =
+      exportName.length === 1 ? exportName[0] : undefined;
     const exportsType = module.buildMeta && module.buildMeta.exportsType;
     if (!exportsType) {
       if (exportName === 'default') {
@@ -78,14 +99,17 @@ module.exports = class ClosureRuntimeTemplate extends RuntimeTemplate {
       }
     }
 
-    if (exportName) {
-      const used = module.isUsed(exportName);
+    if (singleExportName) {
+      const exportsInfo = moduleGraph.getExportsInfo(module);
+      const used = exportsInfo.getUsedName(singleExportName, runtime);
       if (!used) {
-        const comment = Template.toNormalComment(`unused export ${exportName}`);
+        const comment = Template.toNormalComment(
+          `unused export ${singleExportName}`
+        );
         return `${comment} undefined`;
       }
-      const unquotedAccess = unquotedValidator(exportName);
-      let access = `.${exportName}`;
+      const unquotedAccess = unquotedValidator(singleExportName);
+      let access = `.${singleExportName}`;
       if (unquotedAccess.needsQuotes || unquotedAccess.needsBrackets) {
         access = `[${unquotedAccess.quotedValue}]`;
       }

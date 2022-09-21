@@ -1,8 +1,8 @@
 const HarmonyImportDependency = require('webpack/lib/dependencies/HarmonyImportDependency');
 
 class ClosureHarmonyExportImportDependency extends HarmonyImportDependency {
-  constructor(request, originModule, sourceOrder, parserScope, range) {
-    super(request, originModule, sourceOrder, parserScope);
+  constructor(request, sourceOrder, range) {
+    super(request, sourceOrder);
     this.range = range;
   }
   updateHash(hash) {
