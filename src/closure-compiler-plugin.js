@@ -27,6 +27,8 @@ const getWebpackModuleName = require('./module-name');
 const ClosureLibraryPlugin = require('./closure-library-plugin');
 const findNearestCommonParentChunk = require('./common-ancestor');
 
+const enableOutputWrappeprs = true;
+
 const ENTRY_CHUNK_WRAPPER =
   '(function(__wpcc){%s}).call(this || window, (window.__wpcc = window.__wpcc || {}));';
 
@@ -125,6 +127,7 @@ class ClosureCompilerPlugin {
         PLUGIN,
         (compilation, { normalModuleFactory }) => {
           compilation.runtimeTemplate = new ClosureRuntimeTemplate(
+            compilation,
             compilation.outputOptions,
             compilation.requestShortener
           );
@@ -562,18 +565,9 @@ class ClosureCompilerPlugin {
       });
   }
 
-  getEntryModule(chunk, compilation) {
-    const entryModules = Array.from(
+  getEntryModules(chunk, compilation) {
+    return Array.from(
       compilation.chunkGraph.getChunkEntryModulesIterable(chunk)
-    );
-    if (entryModules.length === 0) {
-      // eslint-disable-next-line no-undefined
-      return undefined;
-    } else if (entryModules.length === 1) {
-      return entryModules[0];
-    }
-    throw new Error(
-      `Chunk has ${entryModules.length} entryModules. Multiple entry modules are not supported by the deprecated API (Use the new ChunkGroup API)`
     );
   }
 
@@ -622,12 +616,15 @@ class ClosureCompilerPlugin {
         (chunkGroup) => chunkGroup !== baseChunkGroup
       );
     } else {
-      chunkDefs.set(this.BASE_CHUNK_NAME, {
+      const baseChunkDef = {
         name: this.BASE_CHUNK_NAME,
         parentNames: new Set(),
         sources: [],
-        outputWrapper: ENTRY_CHUNK_WRAPPER,
-      });
+      };
+      if (enableOutputWrappeprs) {
+        baseChunkDef.outputWrapper = ENTRY_CHUNK_WRAPPER;
+      }
+      chunkDefs.set(this.BASE_CHUNK_NAME, baseChunkDef);
     }
 
     let jsonpRuntimeRequired = false;
@@ -655,11 +652,7 @@ class ClosureCompilerPlugin {
         if (!baseChunk || chunkGroup.getParents().length === 0) {
           primaryParentNames.push(this.BASE_CHUNK_NAME);
         }
-        const entryModule = this.getEntryModule(primaryChunk, compilation);
-        const entryModuleDeps =
-          entryModule.type === 'multi entry'
-            ? entryModule.dependencies
-            : [entryModule];
+        const entryModuleDeps = this.getEntryModules(primaryChunk, compilation);
         entryModuleDeps.forEach((entryDep) => {
           entrypoints.push(toSafePath(getWebpackModuleName(entryDep)));
         });
@@ -672,6 +665,7 @@ class ClosureCompilerPlugin {
           }
         }
       } else {
+        // Somehow this branch requires jsonp runtime.
         jsonpRuntimeRequired = true;
         chunkGroup.getParents().forEach((parentGroup) => {
           const primaryParentChunk = parentGroup.chunks.find(
@@ -753,7 +747,9 @@ class ClosureCompilerPlugin {
         src: fs.readFileSync(basicRuntimePath, 'utf8'),
       }
     );
-    baseChunkDef.outputWrapper = ENTRY_CHUNK_WRAPPER;
+    if (enableOutputWrappeprs) {
+      baseChunkDef.outputWrapper = ENTRY_CHUNK_WRAPPER;
+    }
     entrypoints.unshift(basicRuntimePath);
 
     if (jsonpRuntimeRequired) {
@@ -955,6 +951,7 @@ class ClosureCompilerPlugin {
    *   }>>}
    */
   runCompiler(compilation, flags, sources) {
+    require('fs').writeFileSync('closure-inputs.json', JSON.stringify(sources));
     // console.log('Running compiler with flags', flags, 'sources', sources);
     console.log('Running compiler with flags', flags);
     return new Promise((resolve, reject) => {
@@ -967,6 +964,8 @@ class ClosureCompilerPlugin {
         flags,
         this.options.extraCommandArgs
       );
+      compilerRunner.logger = (message) =>
+        console.log('closure-compiler:' + message);
       compilerRunner.spawnOptions = { stdio: 'pipe' };
       const platform = getFirstSupportedPlatform(this.options.platform);
       if (platform.toLowerCase() === 'native') {
@@ -1044,7 +1043,7 @@ class ClosureCompilerPlugin {
           reject();
           return;
         }
-
+        require('fs').writeFileSync('closure-outputs.json', stdOutData);
         const outputFiles = JSON.parse(stdOutData);
         resolve(outputFiles);
       });
@@ -1179,8 +1178,10 @@ class ClosureCompilerPlugin {
         name: safeChunkName,
         parentNames: new Set(),
         sources: chunkSources,
-        outputWrapper: '(function(){%s}).call(this || window)',
       };
+      if (enableOutputWrappeprs) {
+        chunkDef.outputWrapper = '(function(){%s}).call(this || window)';
+      }
       if (parentChunkNames) {
         parentChunkNames.forEach((parentName) => {
           chunkDef.parentNames.add(parentName);

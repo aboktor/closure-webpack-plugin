@@ -38,6 +38,7 @@
   "devDependencies": {
     "@commitlint/cli": "^8.2.0",
     "@commitlint/config-angular": "^8.2.0",
+    "@types/webpack": "^5.28.0",
     "@webpack-contrib/eslint-config-webpack": "^3.0.0",
     "babel-core": "^6.26.3",
     "babel-jest": "^24.9.0",
@@ -55,15 +56,15 @@
     "pre-commit": "^1.2.2",
     "prettier": "^1.19.1",
     "standard-version": "^8.0.1",
-    "webpack": "5.8.x",
-    "@types/webpack": "^5.28.0"
+    "webpack": "5.74.0",
+    "webpack-cli": "^4.10.0"
   },
   "engines": {
     "node": ">= 6.9.0 || >= 8.9.0"
   },
   "peerDependencies": {
     "google-closure-compiler": ">=20220905.0.0",
-    "webpack": "5.8.x"
+    "webpack": "5.74.x"
   },
   "homepage": "https://github.com/webpack-contrib/closure-webpack-plugin",
   "repository": "https://github.com/webpack-contrib/closure-webpack-plugin",

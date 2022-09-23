@@ -1,24 +1,23 @@
 const path = require('path');
 const ClosureCompilerPlugin = require('../../src/closure-compiler-plugin');
-const CopyWebpackPlugin = require('copy-webpack-plugin');
+// const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = (env, argv) => {
-  const isProduction = true;
+  // const isProduction = true;
 
   return {
     entry: {
-      'hello-world': './src/hello-world.js',
+      'main': './src/index.js'
     },
     output: {
       path: path.resolve(__dirname, 'public'),
-      filename: 'js/[name].js',
+      filename: 'js/[name].js'
     },
     devServer: {
       open: true,
     },
     devtool: 'source-map',
     optimization: {
-      minimize: isProduction,
       minimizer: [
         new ClosureCompilerPlugin(
           {
@@ -28,12 +27,16 @@ module.exports = (env, argv) => {
           {
             language_out: 'ECMASCRIPT_2015',
             // warning_level: "QUIET",
-            // compilation_level: "ADVANCED",
+            compilation_level: "ADVANCED",
+            // process_common_js_modules: true,
+            // dependency_mode: 'PRUNE_LEGACY', // PRUNE requires entry_point to be defined
+            // assume_function_wrapper: true,
             // use_types_for_optimization: false,
             // jscomp_off: ["checkVars", "es5Strict"],
             // assume_function_wrapper: true,
-            // rewrite_polyfills: false,
+            rewrite_polyfills: false,
             // strict_mode_input: false,
+            // define: ['process.env.NODE_ENV=production'],
             // debug: true,
             // formatting: "PRETTY_PRINT",
             // externs: ['./node_modules/@polymer/polymer/externs/polymer-externs.js', './node_modules/@polymer/polymer/externs/webcomponents-externs.js']
