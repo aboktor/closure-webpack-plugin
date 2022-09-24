@@ -32,7 +32,7 @@ module.exports = (env, argv) => {
             // dependency_mode: 'PRUNE_LEGACY', // PRUNE requires entry_point to be defined
             // assume_function_wrapper: true,
             // use_types_for_optimization: false,
-            // jscomp_off: ["checkVars", "es5Strict"],
+            jscomp_off: "*",
             // assume_function_wrapper: true,
             rewrite_polyfills: false,
             // strict_mode_input: false,
