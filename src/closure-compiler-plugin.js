@@ -27,7 +27,50 @@ const getWebpackModuleName = require('./module-name');
 const ClosureLibraryPlugin = require('./closure-library-plugin');
 const findNearestCommonParentChunk = require('./common-ancestor');
 
-const enableOutputWrappeprs = true;
+const enableOutputWrappeprs = false;
+const removeSourceMaps = true;
+
+// Added by aboktor, renames chunks to save commandline space
+const renameChunks = true;
+class ChunkRenamer {
+  constructor() {
+    this.serial = 0;
+    this.longToShort = new Map();
+    this.shortToLong = new Map();
+  }
+  shorten(name) {
+    if (!this.longToShort.has(name)) {
+      this.longToShort.set(name, this.serial.toString());
+      this.shortToLong.set(this.serial.toString(), name);
+      this.serial += 1;
+    }
+    console.log('Shortened', name, 'to', this.longToShort.get(name));
+    return this.longToShort.get(name);
+  }
+  lengthen(shortName) {
+    if (!this.shortToLong.has(shortName)) {
+      console.warn(`Failed to lengthen ${shortName}`);
+    }
+    console.log(
+      'Lengthening',
+      shortName,
+      'to',
+      this.shortToLong.get(shortName)
+    );
+    return this.shortToLong.get(shortName);
+  }
+}
+
+class NoopRenamer {
+  shorten(name) {
+    return name;
+  }
+  lengthen(name) {
+    return name;
+  }
+}
+
+const renamer = renameChunks ? new ChunkRenamer() : new NoopRenamer();
 
 const ENTRY_CHUNK_WRAPPER =
   '(function(__wpcc){%s}).call(this || window, (window.__wpcc = window.__wpcc || {}));';
@@ -498,6 +541,7 @@ class ClosureCompilerPlugin {
         this.runCompiler(compilation, compilationOptions, sources, chunkDefs)
           .then((outputFiles) => {
             outputFiles.forEach((outputFile) => {
+              // outputFile.path = renamer.lengthen(outputFile.path); // TODO: fix this
               const chunkIdParts = /chunk-(\d+)\.js/.exec(outputFile.path);
               let chunkId;
               if (chunkIdParts) {
@@ -815,6 +859,11 @@ class ClosureCompilerPlugin {
         outputFiles
           .filter((outputFile) => outputFile.path !== baseFile.path)
           .forEach((outputFile) => {
+            const renameMatch = outputFile.path.match(/\.\/(\d+)\.js/);
+            console.log('log', outputFile.path, renameMatch);
+            if (renameMatch) {
+              outputFile.path = `./${renamer.lengthen(renameMatch[1])}.js`;
+            }
             const chunkIdParts = /chunk-(\d+)\.js/.exec(outputFile.path);
             let chunkId;
             if (chunkIdParts) {
@@ -895,17 +944,23 @@ class ClosureCompilerPlugin {
             }
             allSources.push(srcInfo);
           });
-          let chunkDefinitionString = `${chunkDefArray[i].name}:${chunkDefArray[i].sources.length}`;
+          let chunkDefinitionString = `${renamer.shorten(
+            chunkDefArray[i].name
+          )}:${chunkDefArray[i].sources.length}`;
           if (chunkDefArray[i].parentNames.size > 0) {
             chunkDefinitionString += `:${Array.from(
               chunkDefArray[i].parentNames
-            ).join(',')}`;
+            )
+              .map((name) => renamer.shorten(name))
+              .join(',')}`;
           }
           chunkDefinitionStrings.push(chunkDefinitionString);
           if (chunkDefArray[i].outputWrapper) {
             chunkWrappers = chunkWrappers || [];
             chunkWrappers.push(
-              `${chunkDefArray[i].name}:${chunkDefArray[i].outputWrapper}`
+              `${renamer.shorten(chunkDefArray[i].name)}:${
+                chunkDefArray[i].outputWrapper
+              }`
             );
           }
           chunkDefArray.splice(i, 1);
@@ -952,6 +1007,17 @@ class ClosureCompilerPlugin {
    */
   runCompiler(compilation, flags, sources) {
     require('fs').writeFileSync('closure-inputs.json', JSON.stringify(sources));
+    require('fs').writeFileSync(
+      'closure-inputs-small.json',
+      JSON.stringify(
+        sources.map((s) => {
+          return { path: s.path, webpackId: s.webpackId };
+        })
+      )
+    );
+    if (removeSourceMaps) {
+      sources.forEach((s) => delete s.sourceMap);
+    }
     // console.log('Running compiler with flags', flags, 'sources', sources);
     console.log('Running compiler with flags', flags);
     return new Promise((resolve, reject) => {
@@ -1277,11 +1343,13 @@ class ClosureCompilerPlugin {
       name: safeChunkName,
       parentNames: new Set(),
       sources: chunkSources,
-      outputWrapper:
+    };
+    if (enableOutputWrappeprs) {
+      chunkDef.outputWrapper =
         compilation.chunkGraph.getNumberOfEntryModules(chunk) > 0
           ? ENTRY_CHUNK_WRAPPER
-          : `webpackJsonp([${chunk.id}], function(__wpcc){%s});`,
-    };
+          : `webpackJsonp([${chunk.id}], function(__wpcc){%s});`;
+    }
     if (parentChunkNames) {
       parentChunkNames.forEach((parentName) => {
         chunkDef.parentNames.add(parentName);
